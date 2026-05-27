@@ -10,8 +10,11 @@ APFS clones (`cp -c`) create instant, zero-disk-cost copies of your entire repo.
 
 ## Install
 
-```bash
-claude /install adam-stokes/apfs-clone-workspace
+In Claude Code, run:
+
+```
+/plugin marketplace add adam-stokes/apfs-clone-workspace
+/plugin install apfs-clone-workspace
 ```
 
 ## What it does
