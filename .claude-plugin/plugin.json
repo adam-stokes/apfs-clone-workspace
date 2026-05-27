@@ -1,0 +1,8 @@
+{
+  "name": "apfs-clone-workspace",
+  "description": "APFS copy-on-write clones for instant, isolated agent workspaces on macOS. Replaces git worktrees for parallel agent dispatch — no shared index, no lock files, no branch restrictions.",
+  "author": {
+    "name": "Adam Stokes",
+    "url": "https://github.com/adam-stokes"
+  }
+}
