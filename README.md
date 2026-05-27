@@ -19,6 +19,38 @@ In Claude Code, run:
 /plugin install apfs-clone-workspace
 ```
 
+## Permissions
+
+Subagents need Bash permission to run the clone script. Add these to `~/.claude/settings.json`:
+
+```json
+{
+  "permissions": {
+    "allow": [
+      "Bash(bash ~/.claude/plugins:*)",
+      "Bash(bash $APFS_CLONE:*)",
+      "Bash(find ~/.claude/plugins:*)",
+      "Bash(APFS_CLONE=:*)",
+      "Bash(git clone:*)",
+      "Bash(git checkout:*)",
+      "Bash(git push:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git fetch:*)",
+      "Bash(git merge:*)",
+      "Bash(git status:*)",
+      "Bash(git log:*)",
+      "Bash(git diff:*)",
+      "Bash(git branch:*)",
+      "Bash(make:*)",
+      "Bash(rm -rf ~/.apfs-clones:*)"
+    ]
+  }
+}
+```
+
+Without these, each agent will prompt for Bash approval — which blocks parallel dispatch.
+
 ## How it works
 
 The `scripts/apfs-clone` script:
