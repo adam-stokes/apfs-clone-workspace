@@ -1,12 +1,12 @@
 # apfs-clone-workspace
 
-A Claude Code plugin that provides instant, isolated agent workspaces using macOS APFS copy-on-write clones.
+A Claude Code plugin for fast, isolated agent workspaces using `git clone --local`.
 
 ## Why
 
 Git worktrees share index files and have branch lock restrictions. When you dispatch multiple agents in the same monorepo, they fight over `index.lock`, can't work on the same branch, and generally make a mess.
 
-APFS clones (`cp -c`) create instant, zero-disk-cost copies of your entire repo. Each agent gets a fully independent git state — no shared anything.
+`git clone --local` creates fast clones that hardlink git objects and only check out tracked files — no node_modules, no db snapshots, no worktree bloat. Each agent gets fully independent git state.
 
 ## Install
 
@@ -21,26 +21,23 @@ In Claude Code, run:
 
 Provides the `apfs-clone-workspace` skill that teaches agents to:
 
-1. Create instant APFS clones of your repo for isolated workspaces
+1. Create fast local clones of your repo for isolated workspaces
 2. Work independently with full git state (status, stash, rebase — all independent)
 3. Push work to remote or merge back via local fetch
 4. Clean up clones when done
 
-## Requirements
-
-- macOS with APFS filesystem (default since High Sierra)
-- That's it
-
 ## Comparison
 
-| | APFS Clone | Git Worktree |
-|---|---|---|
-| Speed | Instant | Instant |
-| Disk cost | Zero until diverge | Zero (shared objects) |
-| Independence | Full | Shared index/locks |
-| Same branch | Yes | No |
-| Concurrent agents | No conflicts | Lock conflicts |
-| Platform | macOS only | Any OS |
+| | git clone --local | APFS cp -c | Git Worktree |
+|---|---|---|---|
+| Speed | Fast (hardlinks) | Instant per-block, slow on large trees | Instant |
+| Skips untracked | Yes | No — copies everything | Yes |
+| Disk cost | Low (hardlinked objects) | Zero until diverge | Zero (shared) |
+| Independence | Full | Full | Shared index/locks |
+| Same branch | Yes | Yes | No |
+| Concurrent agents | No conflicts | No conflicts | Lock conflicts |
+| Needs dep install | Yes | No | Yes |
+| Platform | Any OS | macOS only | Any OS |
 
 ## License
 
