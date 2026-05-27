@@ -1,0 +1,54 @@
+#!/bin/bash
+# apfs-clone: Git-aware APFS copy-on-write clone
+# Only clones tracked files + .git directory — skips all untracked bloat
+#
+# Usage: apfs-clone <source-repo> <target-path>
+
+set -euo pipefail
+
+SRC="${1:?Usage: apfs-clone <source-repo> <target-path>}"
+DST="${2:?Usage: apfs-clone <source-repo> <target-path>}"
+
+# Resolve to absolute paths
+SRC="$(cd "$SRC" && pwd)"
+
+if [ -d "$DST" ]; then
+  echo "error: target already exists: $DST" >&2
+  exit 1
+fi
+
+if [ ! -d "$SRC/.git" ]; then
+  echo "error: not a git repository: $SRC" >&2
+  exit 1
+fi
+
+# Verify APFS support
+if ! cp -c /dev/null /tmp/.apfs-test-$$ 2>/dev/null; then
+  echo "warning: APFS clones not supported on this volume, falling back to regular copy" >&2
+  CP_FLAG=""
+else
+  CP_FLAG="-c"
+  rm -f /tmp/.apfs-test-$$
+fi
+
+mkdir -p "$DST"
+
+# 1. Clone .git directory (APFS CoW — preserves full history)
+echo "cloning .git..."
+cp $CP_FLAG -R "$SRC/.git" "$DST/.git"
+
+# 2. Create directory structure for all tracked files
+echo "creating directory structure..."
+git -C "$SRC" ls-files | xargs -n1 dirname | sort -u | while IFS= read -r dir; do
+  mkdir -p "$DST/$dir"
+done
+
+# 3. Clone tracked files with APFS CoW in parallel
+echo "cloning tracked files..."
+FILE_COUNT=$(git -C "$SRC" ls-files | wc -l | tr -d ' ')
+git -C "$SRC" ls-files -z | xargs -0 -P 8 -I {} cp $CP_FLAG "$SRC/{}" "$DST/{}"
+
+# 4. Reset index to match working tree (clone starts clean)
+git -C "$DST" reset --quiet HEAD 2>/dev/null || true
+
+echo "done: $FILE_COUNT tracked files cloned to $DST"

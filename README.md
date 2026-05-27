@@ -1,12 +1,14 @@
 # apfs-clone-workspace
 
-A Claude Code plugin for fast, isolated agent workspaces using `git clone --local`.
+A Claude Code plugin for fast, isolated agent workspaces using git-aware APFS copy-on-write clones.
 
 ## Why
 
 Git worktrees share index files and have branch lock restrictions. When you dispatch multiple agents in the same monorepo, they fight over `index.lock`, can't work on the same branch, and generally make a mess.
 
-`git clone --local` creates fast clones that hardlink git objects and only check out tracked files — no node_modules, no db snapshots, no worktree bloat. Each agent gets fully independent git state.
+Naive `cp -c -R` copies everything — including node_modules (200k+ files) and db snapshots (50GB+) — making the tree walk crawl.
+
+`apfs-clone` uses `git ls-files` to identify tracked files, then `cp -c` each one with APFS CoW. You get instant, near-zero-disk-cost clones of only the code that matters.
 
 ## Install
 
@@ -17,27 +19,44 @@ In Claude Code, run:
 /plugin install apfs-clone-workspace
 ```
 
-## What it does
+## How it works
 
-Provides the `apfs-clone-workspace` skill that teaches agents to:
+The `scripts/apfs-clone` script:
 
-1. Create fast local clones of your repo for isolated workspaces
-2. Work independently with full git state (status, stash, rebase — all independent)
-3. Push work to remote or merge back via local fetch
-4. Clean up clones when done
+1. `cp -c -R .git/` — clone full git state via APFS CoW
+2. `git ls-files` — enumerate only tracked files
+3. `cp -c` each file in parallel — APFS CoW per file
+4. Reset index so clone starts clean
+
+A 5,000-file repo clones in ~2 seconds, regardless of how much untracked bloat exists.
+
+## Usage
+
+```bash
+# Clone a repo
+apfs-clone /path/to/repo /tmp/my-clone
+
+# Work in the clone
+cd /tmp/my-clone
+npm install  # install deps (tracked files only, no node_modules)
+git checkout -b feature/my-work
+# ... make changes, commit, push ...
+
+# Cleanup
+rm -rf /tmp/my-clone
+```
 
 ## Comparison
 
-| | git clone --local | APFS cp -c | Git Worktree |
-|---|---|---|---|
-| Speed | Fast (hardlinks) | Instant per-block, slow on large trees | Instant |
-| Skips untracked | Yes | No — copies everything | Yes |
-| Disk cost | Low (hardlinked objects) | Zero until diverge | Zero (shared) |
-| Independence | Full | Full | Shared index/locks |
-| Same branch | Yes | Yes | No |
-| Concurrent agents | No conflicts | No conflicts | Lock conflicts |
-| Needs dep install | Yes | No | Yes |
-| Platform | Any OS | macOS only | Any OS |
+| | apfs-clone | cp -c -R | git clone --local | Git Worktree |
+|---|---|---|---|---|
+| Speed | Fast (tracked only) | Slow on bloated repos | Fast (hardlinks) | Instant |
+| Skips untracked | Yes | No | Yes | Yes |
+| Disk cost | Near-zero (CoW) | Near-zero (CoW) | Low (hardlinks) | Zero (shared) |
+| Independence | Full | Full | Full | Shared index/locks |
+| Same branch | Yes | Yes | Yes | No |
+| Concurrent agents | No conflicts | No conflicts | No conflicts | Lock conflicts |
+| Platform | macOS (APFS) | macOS (APFS) | Any OS | Any OS |
 
 ## License
 

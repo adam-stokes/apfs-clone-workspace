@@ -3,13 +3,33 @@ name: apfs-clone-workspace
 description: Use when dispatching parallel agents that need isolated copies of a repo, when git worktrees cause lock conflicts or branch restrictions, or when agents in a monorepo need full independent git state without shared index files
 ---
 
-# Isolated Agent Workspaces
+# APFS Clone Workspaces
 
 ## Overview
 
-Create fast, isolated repo copies for parallel agent work. Each agent gets a fully independent git repo — no shared index, no lock files, no branch restrictions.
+Create instant, isolated repo copies using macOS APFS copy-on-write clones. Each agent gets a fully independent git repo — no shared index, no lock files, no branch restrictions.
 
-**Core principle:** Use `git clone --local` for agent dispatch. It hardlinks git objects (fast, low disk), only checks out tracked files (skips node_modules, snapshots, worktrees), and gives full git independence.
+**Core principle:** Use `apfs-clone` — a git-aware APFS clone that only copies tracked files + `.git/`. Skips node_modules, db snapshots, worktrees, and all untracked bloat automatically.
+
+## The Script
+
+Located at: `scripts/apfs-clone` in this plugin directory.
+
+Find it dynamically:
+```bash
+APFS_CLONE="$(find ~/.claude/plugins/cache -path '*/apfs-clone-workspace/scripts/apfs-clone' -type f 2>/dev/null | head -1)"
+```
+
+Usage:
+```bash
+$APFS_CLONE /path/to/repo /tmp/clone-name
+```
+
+What it does:
+1. `cp -c -R .git/` — full git state via APFS CoW
+2. `git ls-files` — get only tracked files
+3. `cp -c` each tracked file in parallel — APFS CoW per file
+4. Resets index so clone starts clean
 
 ## When to Use
 
@@ -24,38 +44,24 @@ Create fast, isolated repo copies for parallel agent work. Each agent gets a ful
 
 | Operation | Command |
 |-----------|---------|
-| Create clone | `git clone --local /path/to/repo /tmp/clone-name` |
-| Pull work back | `git -C /path/to/repo fetch /tmp/clone-name branch-name && git merge FETCH_HEAD` |
-| Cherry-pick back | `git -C /path/to/repo fetch /tmp/clone-name branch-name && git cherry-pick FETCH_HEAD` |
+| Create clone | `$APFS_CLONE /path/to/repo /tmp/clone-name` |
+| Pull work back | `git fetch /tmp/clone-name branch-name && git merge FETCH_HEAD` |
+| Cherry-pick back | `git fetch /tmp/clone-name branch-name && git cherry-pick FETCH_HEAD` |
 | Cleanup | `rm -rf /tmp/clone-name` |
-
-## Creating a Workspace
-
-```bash
-# Fast local clone — hardlinks objects, checks out only tracked files
-git clone --local "$(pwd)" "/tmp/$(basename $(pwd))-agent-$$"
-cd "/tmp/$(basename $(pwd))-agent-$$"
-
-# Install deps if needed (project-specific)
-# make node_modules / npm install / pip install etc.
-
-git checkout -b feature/my-work
-# ... make changes, commit ...
-```
-
-**Why not `cp -c -R`?** APFS clones are O(1) per block but still walk the entire file tree. Untracked bloat (node_modules, db snapshots, worktree dirs) gets copied too — a 50GB snapshot makes it crawl. `git clone --local` skips all untracked files automatically.
 
 ## Dispatching Parallel Agents
 
-When launching multiple agents, create one clone per agent. Each clone is fully independent.
+Include clone setup in each agent's prompt:
 
 ```
 Agent({
   description: "Fix issue #123",
   prompt: "
     First, create your isolated workspace:
-      git clone --local /path/to/myrepo /tmp/myrepo-issue-123
-      cd /tmp/myrepo-issue-123
+      APFS_CLONE=$(find ~/.claude/plugins/cache -path '*/apfs-clone-workspace/scripts/apfs-clone' -type f 2>/dev/null | head -1)
+      bash $APFS_CLONE /path/to/repo /tmp/repo-issue-123
+      cd /tmp/repo-issue-123
+      # Install deps if needed: make node_modules / npm install / etc.
 
     Then do your work:
       1. Investigate and fix the issue
@@ -73,59 +79,43 @@ Agent({
 
 ## Merging Work Back
 
-After agents finish, pull their branches into the main repo:
-
 ```bash
 # Option A: Fetch + merge from clone path (no remote needed)
-git fetch /tmp/myrepo-issue-123 fix/issue-123
+git fetch /tmp/repo-issue-123 fix/issue-123
 git merge FETCH_HEAD
 
 # Option B: If agents pushed to remote, just pull normally
 git pull origin fix/issue-123
 
 # Option C: Cherry-pick specific commits
-git fetch /tmp/myrepo-issue-123 fix/issue-123
+git fetch /tmp/repo-issue-123 fix/issue-123
 git cherry-pick FETCH_HEAD~2..FETCH_HEAD
 ```
 
 ## Cleanup
 
 ```bash
-# Remove a single workspace
-rm -rf /tmp/myrepo-issue-123
-
-# Remove all workspaces for a project
-rm -rf /tmp/myrepo-*
-
-# List active workspaces
-ls -d /tmp/myrepo-* 2>/dev/null
+rm -rf /tmp/repo-issue-123   # single workspace
+rm -rf /tmp/repo-*            # all workspaces for a project
 ```
 
 ## Compared to Alternatives
 
-| | git clone --local | APFS cp -c | Git Worktree |
-|---|---|---|---|
-| Speed | Fast (hardlinks objects) | Instant per-block, slow on large trees | Instant |
-| Skips untracked | Yes — only tracked files | No — copies everything | Yes |
-| Disk cost | Low (hardlinked objects) | Zero until diverge | Zero (shared objects) |
-| Independence | Full — separate .git | Full — separate .git | Shared .git, index, locks |
-| Same branch | Yes | Yes | No — branch locked |
-| Concurrent agents | No conflicts | No conflicts | index.lock, branch locks |
-| Needs dep install | Yes | No | Yes |
-| Platform | Any OS | macOS only (APFS) | Any OS |
-
-## When to Use cp -c Instead
-
-If you need uncommitted/staged changes in the clone, or the project has no heavy untracked files, APFS `cp -c -R` is still viable:
-
-```bash
-cp -c -R /path/to/repo /tmp/clone-name
-```
+| | apfs-clone | cp -c -R | git clone --local | Git Worktree |
+|---|---|---|---|---|
+| Speed | Fast (tracked files only) | Slow on bloated repos | Fast (hardlinks) | Instant |
+| Skips untracked | Yes — git-aware | No — copies everything | Yes | Yes |
+| Disk cost | Near-zero (CoW) | Near-zero (CoW) | Low (hardlinks) | Zero (shared) |
+| Independence | Full | Full | Full | Shared .git/index/locks |
+| Same branch | Yes | Yes | Yes | No |
+| Concurrent agents | No conflicts | No conflicts | No conflicts | Lock conflicts |
+| Needs dep install | Yes | No | Yes | Yes |
+| Platform | macOS (APFS) | macOS (APFS) | Any OS | Any OS |
 
 ## Common Mistakes
 
-**Forgetting to push before cleanup** — If the agent committed locally but didn't push, deleting the clone loses the work. Always have agents push to remote OR fetch from the clone path before removing it.
+**Forgetting to push before cleanup** — Deleting the clone loses unpushed work. Always push to remote OR fetch from the clone path first.
 
-**Skipping dependency install** — `git clone --local` only gets tracked files. If the project needs node_modules, venv, etc., the agent must install them. Include the install command in the agent prompt.
+**Skipping dependency install** — The clone only has tracked files. Agents must install deps (node_modules, venv, etc.). Include the install command in the agent prompt.
 
-**Not setting remote tracking** — Local clones copy the git config including remotes. Agents can push directly to origin. No extra config needed.
+**Non-APFS fallback** — The script detects non-APFS volumes and falls back to regular copy automatically.
