@@ -22,7 +22,11 @@ APFS_CLONE="$(find ~/.claude/plugins/cache -path '*/apfs-clone-workspace/scripts
 
 Usage:
 ```bash
-$APFS_CLONE /path/to/repo /tmp/clone-name
+# Auto-generates target at ~/.apfs-clones/<repo>-<pid>
+bash $APFS_CLONE /path/to/repo
+
+# Or specify a target path
+bash $APFS_CLONE /path/to/repo ~/.apfs-clones/my-custom-name
 ```
 
 What it does:
@@ -30,6 +34,8 @@ What it does:
 2. `git ls-files` — get only tracked files
 3. `cp -c` each tracked file in parallel — APFS CoW per file
 4. Resets index so clone starts clean
+
+Clones land on `~/.apfs-clones/` by default — an APFS volume where CoW actually works (unlike `/tmp` which may be tmpfs). Override with `APFS_CLONE_DIR` env var.
 
 ## When to Use
 
@@ -44,10 +50,11 @@ What it does:
 
 | Operation | Command |
 |-----------|---------|
-| Create clone | `$APFS_CLONE /path/to/repo /tmp/clone-name` |
-| Pull work back | `git fetch /tmp/clone-name branch-name && git merge FETCH_HEAD` |
-| Cherry-pick back | `git fetch /tmp/clone-name branch-name && git cherry-pick FETCH_HEAD` |
-| Cleanup | `rm -rf /tmp/clone-name` |
+| Create clone | `bash $APFS_CLONE /path/to/repo` |
+| Create named clone | `bash $APFS_CLONE /path/to/repo ~/.apfs-clones/issue-123` |
+| Pull work back | `git fetch ~/.apfs-clones/issue-123 branch-name && git merge FETCH_HEAD` |
+| Cleanup one | `rm -rf ~/.apfs-clones/issue-123` |
+| Cleanup all | `rm -rf ~/.apfs-clones/*` |
 
 ## Dispatching Parallel Agents
 
@@ -59,8 +66,8 @@ Agent({
   prompt: "
     First, create your isolated workspace:
       APFS_CLONE=$(find ~/.claude/plugins/cache -path '*/apfs-clone-workspace/scripts/apfs-clone' -type f 2>/dev/null | head -1)
-      bash $APFS_CLONE /path/to/repo /tmp/repo-issue-123
-      cd /tmp/repo-issue-123
+      bash $APFS_CLONE /path/to/repo ~/.apfs-clones/issue-123
+      cd ~/.apfs-clones/issue-123
       # Install deps if needed: make node_modules / npm install / etc.
 
     Then do your work:
@@ -81,22 +88,18 @@ Agent({
 
 ```bash
 # Option A: Fetch + merge from clone path (no remote needed)
-git fetch /tmp/repo-issue-123 fix/issue-123
+git fetch ~/.apfs-clones/issue-123 fix/issue-123
 git merge FETCH_HEAD
 
 # Option B: If agents pushed to remote, just pull normally
 git pull origin fix/issue-123
-
-# Option C: Cherry-pick specific commits
-git fetch /tmp/repo-issue-123 fix/issue-123
-git cherry-pick FETCH_HEAD~2..FETCH_HEAD
 ```
 
 ## Cleanup
 
 ```bash
-rm -rf /tmp/repo-issue-123   # single workspace
-rm -rf /tmp/repo-*            # all workspaces for a project
+rm -rf ~/.apfs-clones/issue-123   # single workspace
+rm -rf ~/.apfs-clones/*            # all workspaces
 ```
 
 ## Compared to Alternatives
@@ -118,4 +121,4 @@ rm -rf /tmp/repo-*            # all workspaces for a project
 
 **Skipping dependency install** — The clone only has tracked files. Agents must install deps (node_modules, venv, etc.). Include the install command in the agent prompt.
 
-**Non-APFS fallback** — The script detects non-APFS volumes and falls back to regular copy automatically.
+**Using /tmp** — `/tmp` on macOS may be tmpfs, not APFS. The script defaults to `~/.apfs-clones/` which is on your APFS volume. Don't override to `/tmp`.
