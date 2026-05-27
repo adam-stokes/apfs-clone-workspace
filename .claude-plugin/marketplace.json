@@ -1,0 +1,18 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "apfs-clone-workspace",
+  "description": "APFS copy-on-write clones for instant, isolated agent workspaces on macOS",
+  "owner": {
+    "name": "Adam Stokes",
+    "url": "https://github.com/adam-stokes"
+  },
+  "plugins": [
+    {
+      "name": "apfs-clone-workspace",
+      "description": "APFS copy-on-write clones for instant, isolated agent workspaces on macOS. Replaces git worktrees for parallel agent dispatch — no shared index, no lock files, no branch restrictions.",
+      "source": ".",
+      "category": "development",
+      "homepage": "https://github.com/adam-stokes/apfs-clone-workspace"
+    }
+  ]
+}
